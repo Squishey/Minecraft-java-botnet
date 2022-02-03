@@ -1,18 +1,20 @@
 const mineflayer = require('mineflayer')
 const bot = require('./bot');
+const fs = require('fs');
 
 function getRandomInt(min, max) {
     return Math.floor(Math.random() * (max - min)) + min;
 }
 
 class botManager{
-    constructor(name, startWith, ip, port){
+    constructor(name, startWith, ip, port, options = { connections: 0, bots: [] }){
         this.name = name;
         this.startWith = startWith;
         this.ip = ip;
         this.port = port;
-        this.bots = []
-        this.allowedNames = ['Squisheyyy']
+        this.bots = options.bots
+        this.allowedNames = ['Squisheyyy'] // Your minecraft user here
+        this.connections = options.connections;
 
         this.bot = mineflayer.createBot({
             host: this.ip,
@@ -20,10 +22,59 @@ class botManager{
             port: this.port 
         });
 
-        this.bot.on('spawn', () => {
+        this.bot.on('kick', () => {
+            if(this.connections >= 2){
+                console.log('Manager died, changing bots to self mode');
+                for(let i = 0; i < this.bots.length; i++){
+                    this.bots[i].selfModeFunction();
+                    delete this;
+                }
+            }
+            else{
+                new botManager(this.name, 0, this.ip, this.port, { connections: this.connections + 1, bots: this.bots });
+                delete this;
+            }
+        })
+
+        this.bot.on('end', () => {
+            if(this.connections >= 2){
+                console.log('Manager died, changing bots to self mode');
+                for(let i = 0; i < this.bots.length; i++){
+                    try{
+                        this.bots[i].selfModeFunction();
+                    }
+                    catch(e){ console.log(e) }
+                }
+            }
+            else{
+                new botManager(this.name, 0, this.ip, this.port, { connections: this.connections + 1, bots: this.bots });
+                console.log(this.connections);
+                delete this;
+            }
+        })
+
+        this.bot.on('error', () => {
+            if(this.connections >= 2){
+                console.log('Manager died, changing bots to self mode');
+                for(let i = 0; i < this.bots.length; i++){
+                    this.bots[i].selfModeFunction();
+                }
+            }
+            else{
+                console.log(this.connections)
+                new botManager(this.name, 0, this.ip, this.port, { connections: this.connections + 1, bots: this.bots });
+                delete this;
+            }
+        })
+
+        this.bot.on('login', () => {
+            if(this.bots.length >= 1){
+                this.bot.chat(`Successfully restored ${this.bots.length} bots.`);
+                return;
+            }
             for(let i = 0; i < this.startWith; i++){
                 setTimeout(() => {
-                    let name = this.name + getRandomInt(100, 13400);
+                    let name = this.name + getRandomInt(0, 134000);
                     this.bots.push( new bot(name, this.ip, this.port) )
                 }, 4000 * i)
             }
@@ -34,7 +85,7 @@ class botManager{
                 if( user === this.allowedNames[i] ){
                     let separatedCommand = msg.split(' ')
                     switch(separatedCommand[0].toLowerCase()){
-                        case 'seguir':
+                        case 'follow':
                             console.log('a');
                             this.follow(separatedCommand[1]);
                             break;
@@ -55,15 +106,43 @@ class botManager{
                             this.leaveAll();
                             break;
                         case 'terminate':
-                            this.leaveAll();
+                            this.terminate();
                             break;
                         case 'whereis':
                             this.whereis(separatedCommand[1])
+                            break;
+                        case 'whitelist':
+                            console.log(separatedCommand[1], separatedCommand[2]);
+                            this.whitelist(separatedCommand[1], separatedCommand[2]);
                             break;
                     }
                 }
             }
         })
+    }
+
+    whitelist(arg, name){
+        if(arg !== undefined){
+            switch(arg){
+                case 'add':
+                    this.allowedNames.push(name);
+                    this.bot.chat(`${name} has been successfully added to whitelist`);
+                    break;
+                case 'remove':
+                    for(let i = 0; i < this.allowedNames.length; i++){
+                        if(name === this.allowedNames[i]){
+                            this.allowedNames.splice(i, 1);
+                            this.bot.chat(`${name} has been successfully removed from whitelist`);
+                            return;
+                        }
+                    }
+                    this.bot.chat('Unknown player')
+                    break;
+            }
+        }
+        else{
+            this.bot.chat(`${this.allowedNames.toString()}`);
+        }
     }
 
     whereis(botName){
@@ -90,7 +169,7 @@ class botManager{
             this.bots[i].disconnect();
             this.bots = []
         }
-        this.bot.disconnect();
+        this.bot.quit();
     }
 
     leave(botName){
@@ -114,13 +193,13 @@ class botManager{
         let success = 0;
         for(let i = 0; i < this.bots.length; i++){
             if(this.bots[i].attack(player) === 0){
-                this.bot.chat(`${this.bots[i].name} no encuentra a ese jugador`);
+                this.bot.chat(`${this.bots[i].name} cant find that player`);
             }
             else{
                 success++
             }
         }
-        this.bot.chat(`${success}/${this.bots.length} lo estan persiguiendo para matarlo`)
+        this.bot.chat(`${success}/${this.bots.length} are following ${player} in order to kill them`)
     }
 
     idle(){
@@ -133,13 +212,13 @@ class botManager{
         let success = 0
         for(let i = 0; i < this.bots.length; i++){
             if(this.bots[i].followPlayer(player) === 0){
-                this.bot.chat(`${this.bots[i].name} no encuentra a ese jugador`);
+                this.bot.chat(`${this.bots[i].name} cant find that player`);
             }
             else{
                 success++
             }
         }
-        this.bot.chat(`${success}/${this.bots.length} lo estan siguiendo`)
+        this.bot.chat(`${success}/${this.bots.length} are following them`)
     }
 }
 
